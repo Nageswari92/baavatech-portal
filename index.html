@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BAVA TECH - Work Allocation Portal (Live Team Sync)</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     body { font-family: 'Inter', sans-serif; }
@@ -24,7 +21,7 @@
           <div class="flex items-center gap-2">
             <h1 class="text-2xl font-black text-white">BAVA TECH Work Allocation Portal</h1>
             <span class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE SYNC
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE SYNC ACTIVE
             </span>
           </div>
           <p class="text-slate-400 text-xs font-medium">Engineering BoM & Luminovo Workflow Automation</p>
@@ -128,7 +125,7 @@
             <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2">
               <span class="text-amber-400">🔔</span> Live Activity Feed
             </h3>
-            <span class="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-semibold">Real-Time Sync</span>
+            <span class="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-semibold">Cloud Sync</span>
           </div>
           <div id="notificationList" class="space-y-2.5 max-h-[480px] overflow-y-auto pr-1"></div>
         </div>
@@ -136,7 +133,7 @@
     </div>
   </div>
 
-  <!-- Create Modal (With 4 Separate Dropdowns) -->
+  <!-- Create Modal -->
   <div id="createModal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-5xl shadow-2xl max-h-[90vh] flex flex-col">
       <h3 class="text-lg font-bold text-white mb-1">Create Task Allocation</h3>
@@ -304,7 +301,7 @@
 
   <script>
     // =========================================================================
-    // 1. EXACT OFFICIAL TEAMS EMAIL ID MAPPING
+    // 1. TEAM MEMBERS & OFFICIAL TEAMS LOGIN EMAILS
     // =========================================================================
     const ALL_MEMBERS = ["Rohini", "Saritha", "Nageswari", "Sathya", "Banu", "Indhu", "Krishna"];
 
@@ -318,42 +315,23 @@
       "Krishna": "ksk@baavatech.com"
     };
 
+    // =========================================================================
+    // 2. LIVE CLOUD API CONFIGURATION (npoint API Endpoint)
+    // =========================================================================
+    const NPOINT_URL = "https://api.npoint.io/13f13b1a5c2825deb63a";
+
     let currentDate = "";
     let allocatedBy = "Rohini";
     let shipmentBy = "Saritha";
     let bomPackages = [];
     let notifications = [];
+    let globalStore = {};
+    let isSaving = false;
+
     let currentReworkContext = null;
     let currentMinorContext = null;
     let currentCreationContext = null;
     let currentShipmentNoteContext = null;
-
-    // =========================================================================
-    // 2. FIREBASE CONFIGURATION WITH SAFE FALLBACK
-    // =========================================================================
-    const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-      databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_PROJECT_ID.appspot.com",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
-    };
-
-    let db = null;
-    let isFirebaseActive = false;
-
-    try {
-      if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY") {
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        db = firebase.database();
-        isFirebaseActive = true;
-      }
-    } catch(e) {
-      console.warn("Firebase not configured, running in LocalStorage mode.", e);
-      isFirebaseActive = false;
-    }
 
     function initHeaderDropdowns() {
       const allocSelect = document.getElementById('headerAllocatedBy');
@@ -363,12 +341,11 @@
       shipSelect.innerHTML = ALL_MEMBERS.map(m => `<option value="${m}" ${m === shipmentBy ? 'selected' : ''}>${m}</option>`).join('');
     }
 
-    // Direct Teams 1-on-1 Chat Launcher with target user's exact email address
+    // Direct Teams 1-on-1 Deep Link Launcher
     function notifyOnTeams(targetMember, messageText) {
       const email = MEMBER_EMAILS[targetMember] || targetMember;
       const cleanEmail = email.trim();
       const encodedMsg = encodeURIComponent(messageText);
-      
       const teamsLink = `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(cleanEmail)}&message=${encodedMsg}`;
       
       const link = document.createElement('a');
@@ -387,57 +364,56 @@
       const dd = String(today.getDate()).padStart(2, '0');
       currentDate = `${yyyy}-${mm}-${dd}`;
       document.getElementById('datePicker').value = currentDate;
+      document.getElementById('summaryDateLabel').innerText = currentDate;
     }
 
-    function loadDateData(dateStr) {
-      currentDate = dateStr;
-      document.getElementById('summaryDateLabel').innerText = dateStr;
-
-      if (isFirebaseActive && db) {
-        db.ref(`portal/${dateStr}`).on('value', (snapshot) => {
-          const data = snapshot.val();
-          if (data) {
-            allocatedBy = data.roles?.allocatedBy || "Rohini";
-            shipmentBy = data.roles?.shipmentBy || "Saritha";
-            bomPackages = data.bomPackages || [];
-            notifications = data.notifications || [];
+    // Cloud Data Fetching
+    async function fetchCloudData() {
+      if (isSaving) return;
+      try {
+        const res = await fetch(NPOINT_URL);
+        if (res.ok) {
+          const data = await res.json();
+          globalStore = data || {};
+          const dayData = globalStore[currentDate];
+          if (dayData) {
+            allocatedBy = dayData.roles?.allocatedBy || "Rohini";
+            shipmentBy = dayData.roles?.shipmentBy || "Saritha";
+            bomPackages = dayData.bomPackages || [];
+            notifications = dayData.notifications || [];
           } else {
             allocatedBy = "Rohini";
             shipmentBy = "Saritha";
             bomPackages = [];
-            notifications = [{ text: `Portal initialized for ${dateStr}`, time: getTimeStr(), type: "info" }];
+            notifications = [{ text: `Portal ready for ${currentDate}`, time: getTimeStr(), type: "info" }];
           }
           initHeaderDropdowns();
           renderAll();
-        });
-      } else {
-        const storedRoles = localStorage.getItem(`roles_${dateStr}`);
-        if (storedRoles) {
-          const roles = JSON.parse(storedRoles);
-          allocatedBy = roles.allocatedBy || "Rohini";
-          shipmentBy = roles.shipmentBy || "Saritha";
         }
-        const storedBoms = localStorage.getItem(`bomPackages_${dateStr}`);
-        const storedNotifs = localStorage.getItem(`notifications_${dateStr}`);
-        bomPackages = storedBoms ? JSON.parse(storedBoms) : [];
-        notifications = storedNotifs ? JSON.parse(storedNotifs) : [{ text: `Portal initialized for ${dateStr}`, time: getTimeStr(), type: "info" }];
-
-        initHeaderDropdowns();
-        renderAll();
+      } catch (err) {
+        console.warn("Cloud sync read failed, running local cache", err);
       }
     }
 
-    function syncData() {
-      if (isFirebaseActive && db) {
-        db.ref(`portal/${currentDate}`).set({
-          roles: { allocatedBy, shipmentBy },
-          bomPackages: bomPackages,
-          notifications: notifications
+    // Cloud Data Saving
+    async function syncData() {
+      isSaving = true;
+      globalStore[currentDate] = {
+        roles: { allocatedBy, shipmentBy },
+        bomPackages: bomPackages,
+        notifications: notifications
+      };
+
+      try {
+        await fetch(NPOINT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(globalStore)
         });
-      } else {
-        localStorage.setItem(`roles_${currentDate}`, JSON.stringify({ allocatedBy, shipmentBy }));
-        localStorage.setItem(`bomPackages_${currentDate}`, JSON.stringify(bomPackages));
-        localStorage.setItem(`notifications_${currentDate}`, JSON.stringify(notifications));
+      } catch (err) {
+        console.error("Cloud sync save error", err);
+      } finally {
+        isSaving = false;
       }
     }
 
@@ -451,10 +427,9 @@
     function onDateChange() {
       const pickerVal = document.getElementById('datePicker').value;
       if (pickerVal) {
-        if (isFirebaseActive && db) {
-          db.ref(`portal/${currentDate}`).off();
-        }
-        loadDateData(pickerVal);
+        currentDate = pickerVal;
+        document.getElementById('summaryDateLabel').innerText = currentDate;
+        fetchCloudData();
       }
     }
 
@@ -607,7 +582,7 @@
         }
       });
 
-      addNotification(`📌 Status Update: ${vse.fileName || vse.partNumber} marked as ${vse.alreadyExistsInLuminovo ? 'EXISTS IN LUMINOVO (Lum. Upload/Review Skipped)' : 'NORMAL FILE'}`, "info");
+      addNotification(`📌 Status Update: ${vse.fileName || vse.partNumber} marked as ${vse.alreadyExistsInLuminovo ? 'EXISTS IN LUMINOVO' : 'NORMAL FILE'}`, "info");
       syncData();
       renderAll();
     }
@@ -906,7 +881,7 @@
       executeComplete(pkgId, vseId, stageIdx);
     }
 
-    // Dynamic Teams 1-on-1 Message Dispatcher
+    // Teams Handover Trigger
     function executeComplete(pkgId, vseId, stageIdx) {
       const timeNow = getTimeStr();
       playBeep();
@@ -920,23 +895,19 @@
 
       const displayName = vse.fileName || `Part: ${vse.partNumber}`;
 
-      // Check if file is Exists in Luminovo and completed VSE stages
       if (vse.alreadyExistsInLuminovo && (stageIdx === 1 || (stageIdx === 0 && vse.stages.length === 2))) {
         addNotification(`🎉 File Completion: ${displayName} is COMPLETED (Exists in Luminovo). Ready for ${shipmentBy} to Email!`, "success");
         const teamsMsg = `Hi ${shipmentBy},\n\nFile "${displayName}" is COMPLETED (Exists in Luminovo). Ready for Daily Dispatch Email.\n\nThanks,\n${st.owner}`;
         notifyOnTeams(shipmentBy, teamsMsg);
       } else if (stageIdx < vse.stages.length - 1) {
-        // Next Stage Owner
         const nextStage = vse.stages[stageIdx + 1];
         const nextOwner = nextStage.owner;
 
         addNotification(`🔔 Alert: ${st.owner} finished Stage ${stageIdx + 1} (${st.name}) on ${displayName}. Handed over to ${nextOwner}!`, "alert");
 
-        // Targeted 1-on-1 Teams Message directly to nextOwner
         const teamsMsg = `Hi ${nextOwner},\n\nI have completed ${st.name} for file "${displayName}".\nIt is now assigned to you for Stage ${stageIdx + 2} (${nextStage.name}) in the Work Allocation Portal.\n\nThanks,\n${st.owner}`;
         notifyOnTeams(nextOwner, teamsMsg);
       } else {
-        // Last Stage (S4) Completed -> Notify Shipment In-Charge
         addNotification(`🎉 File Completion: ${displayName} is fully COMPLETED. Ready for ${shipmentBy} to Email!`, "success");
         const teamsMsg = `Hi ${shipmentBy},\n\nFile "${displayName}" has passed all reviews and is COMPLETED. Ready for Daily Dispatch Email.\n\nThanks,\n${st.owner}`;
         notifyOnTeams(shipmentBy, teamsMsg);
@@ -1599,11 +1570,16 @@
       document.body.removeChild(link);
     }
 
+    // Polling Interval: Auto check cloud updates every 3 seconds
+    setInterval(() => {
+      fetchCloudData();
+    }, 3000);
+
     // Initial Execution
     window.addEventListener('DOMContentLoaded', () => {
       setInitialDate();
       initHeaderDropdowns();
-      loadDateData(currentDate);
+      fetchCloudData();
     });
   </script>
 </body>
