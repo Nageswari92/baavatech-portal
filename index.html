@@ -9,6 +9,9 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     body { font-family: 'Inter', sans-serif; }
   </style>
+  <!-- Firebase Realtime Engine -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen p-4 md:p-6">
 
@@ -125,7 +128,7 @@
             <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2">
               <span class="text-amber-400">🔔</span> Live Activity Feed
             </h3>
-            <span class="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-semibold">Cloud Sync</span>
+            <span class="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-semibold">Realtime Sync</span>
           </div>
           <div id="notificationList" class="space-y-2.5 max-h-[480px] overflow-y-auto pr-1"></div>
         </div>
@@ -301,7 +304,23 @@
 
   <script>
     // =========================================================================
-    // 1. TEAM MEMBERS & OFFICIAL TEAMS LOGIN EMAILS
+    // 1. FIREBASE REALTIME ENGINE CONFIGURATION
+    // =========================================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyB04QkZMJtyDYD97dM43iC3AC0L2MgC4zY",
+      authDomain: "bava-tech-portal.firebaseapp.com",
+      databaseURL: "https://bava-tech-portal-default-rtdb.firebaseio.com",
+      projectId: "bava-tech-portal",
+      storageBucket: "bava-tech-portal.firebasestorage.app",
+      messagingSenderId: "84229463522",
+      appId: "1:84229463522:web:f08ef3112f72f908776dbb"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // =========================================================================
+    // 2. TEAM MEMBERS & OFFICIAL TEAMS LOGIN EMAILS
     // =========================================================================
     const ALL_MEMBERS = ["Rohini", "Saritha", "Nageswari", "Sathya", "Banu", "Indhu", "Krishna"];
 
@@ -315,18 +334,11 @@
       "Krishna": "ksk@baavatech.com"
     };
 
-    // =========================================================================
-    // 2. LIVE CLOUD API CONFIGURATION (npoint API Endpoint)
-    // =========================================================================
-    const NPOINT_URL = "https://api.npoint.io/13f13b1a5c2825deb63a";
-
     let currentDate = "";
     let allocatedBy = "Rohini";
     let shipmentBy = "Saritha";
     let bomPackages = [];
     let notifications = [];
-    let globalStore = {};
-    let isSaving = false;
 
     let currentReworkContext = null;
     let currentMinorContext = null;
@@ -336,25 +348,8 @@
     function initHeaderDropdowns() {
       const allocSelect = document.getElementById('headerAllocatedBy');
       const shipSelect = document.getElementById('headerShipmentBy');
-
       allocSelect.innerHTML = ALL_MEMBERS.map(m => `<option value="${m}" ${m === allocatedBy ? 'selected' : ''}>${m}</option>`).join('');
       shipSelect.innerHTML = ALL_MEMBERS.map(m => `<option value="${m}" ${m === shipmentBy ? 'selected' : ''}>${m}</option>`).join('');
-    }
-
-    // Direct Teams 1-on-1 Deep Link Launcher
-    function notifyOnTeams(targetMember, messageText) {
-      const email = MEMBER_EMAILS[targetMember] || targetMember;
-      const cleanEmail = email.trim();
-      const encodedMsg = encodeURIComponent(messageText);
-      const teamsLink = `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(cleanEmail)}&message=${encodedMsg}`;
-      
-      const link = document.createElement('a');
-      link.href = teamsLink;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
     }
 
     function setInitialDate() {
@@ -367,53 +362,44 @@
       document.getElementById('summaryDateLabel').innerText = currentDate;
     }
 
-    // Cloud Data Fetching
-    async function fetchCloudData() {
-      if (isSaving) return;
-      try {
-        const res = await fetch(NPOINT_URL);
-        if (res.ok) {
-          const data = await res.json();
-          globalStore = data || {};
-          const dayData = globalStore[currentDate];
-          if (dayData) {
-            allocatedBy = dayData.roles?.allocatedBy || "Rohini";
-            shipmentBy = dayData.roles?.shipmentBy || "Saritha";
-            bomPackages = dayData.bomPackages || [];
-            notifications = dayData.notifications || [];
-          } else {
-            allocatedBy = "Rohini";
-            shipmentBy = "Saritha";
-            bomPackages = [];
-            notifications = [{ text: `Portal ready for ${currentDate}`, time: getTimeStr(), type: "info" }];
-          }
-          initHeaderDropdowns();
-          renderAll();
+    // =========================================================================
+    // 3. REALTIME SYNC (WEBSOCKET LISTENER)
+    // =========================================================================
+    function listenToDateData() {
+      const dateRef = db.ref(`dates/${currentDate}`);
+      dateRef.on('value', (snapshot) => {
+        const dayData = snapshot.val();
+        if (dayData) {
+          allocatedBy = dayData.roles?.allocatedBy || "Rohini";
+          shipmentBy = dayData.roles?.shipmentBy || "Saritha";
+          bomPackages = dayData.bomPackages || [];
+          notifications = dayData.notifications || [];
+        } else {
+          allocatedBy = "Rohini";
+          shipmentBy = "Saritha";
+          bomPackages = [];
+          notifications = [{ text: `Portal ready for ${currentDate}`, time: getTimeStr(), type: "info" }];
         }
-      } catch (err) {
-        console.warn("Cloud sync read failed, running local cache", err);
-      }
+        initHeaderDropdowns();
+        renderAll();
+      });
     }
 
-    // Cloud Data Saving
-    async function syncData() {
-      isSaving = true;
-      globalStore[currentDate] = {
+    function syncData() {
+      db.ref(`dates/${currentDate}`).set({
         roles: { allocatedBy, shipmentBy },
         bomPackages: bomPackages,
         notifications: notifications
-      };
+      });
+    }
 
-      try {
-        await fetch(NPOINT_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(globalStore)
-        });
-      } catch (err) {
-        console.error("Cloud sync save error", err);
-      } finally {
-        isSaving = false;
+    function onDateChange() {
+      const pickerVal = document.getElementById('datePicker').value;
+      if (pickerVal) {
+        db.ref(`dates/${currentDate}`).off();
+        currentDate = pickerVal;
+        document.getElementById('summaryDateLabel').innerText = currentDate;
+        listenToDateData();
       }
     }
 
@@ -421,16 +407,6 @@
       allocatedBy = document.getElementById('headerAllocatedBy').value;
       shipmentBy = document.getElementById('headerShipmentBy').value;
       syncData();
-      renderAll();
-    }
-
-    function onDateChange() {
-      const pickerVal = document.getElementById('datePicker').value;
-      if (pickerVal) {
-        currentDate = pickerVal;
-        document.getElementById('summaryDateLabel').innerText = currentDate;
-        fetchCloudData();
-      }
     }
 
     function getTimeStr() {
@@ -475,7 +451,21 @@
     function addNotification(text, type) {
       notifications.unshift({ text, time: getTimeStr(), type });
       syncData();
-      renderNotifications();
+    }
+
+    function notifyOnTeams(targetMember, messageText) {
+      const email = MEMBER_EMAILS[targetMember] || targetMember;
+      const cleanEmail = email.trim();
+      const encodedMsg = encodeURIComponent(messageText);
+      const teamsLink = `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(cleanEmail)}&message=${encodedMsg}`;
+      
+      const link = document.createElement('a');
+      link.href = teamsLink;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
 
     function renderNotifications() {
@@ -584,7 +574,6 @@
 
       addNotification(`📌 Status Update: ${vse.fileName || vse.partNumber} marked as ${vse.alreadyExistsInLuminovo ? 'EXISTS IN LUMINOVO' : 'NORMAL FILE'}`, "info");
       syncData();
-      renderAll();
     }
 
     function openShipmentNoteModal(pkgId, vseId) {
@@ -624,7 +613,6 @@
       addNotification(`✉️ Note to Email Report: "${note}" added for ${displayName}`, "info");
       closeShipmentNoteModal();
       syncData();
-      renderAll();
     }
 
     function generateEmailText() {
@@ -821,7 +809,6 @@
       vse.stages[stageIdx].owner = newOwner;
       addNotification(`[${vse.fileName || vse.partNumber}] Stage ${stageIdx + 1} (${vse.stages[stageIdx].name}) assigned to ${newOwner}`, "info");
       syncData();
-      renderAll();
     }
 
     function handleStart(pkgId, vseId, stageIdx) {
@@ -839,7 +826,6 @@
         addNotification(`Stage '${vse.stages[stageIdx].name}' started by ${vse.stages[stageIdx].owner} on ${displayName}`, "info");
       }
       syncData();
-      renderAll();
     }
 
     function handleCompleteClick(pkgId, vseId, stageIdx) {
@@ -881,7 +867,6 @@
       executeComplete(pkgId, vseId, stageIdx);
     }
 
-    // Teams Handover Trigger
     function executeComplete(pkgId, vseId, stageIdx) {
       const timeNow = getTimeStr();
       playBeep();
@@ -913,7 +898,6 @@
         notifyOnTeams(shipmentBy, teamsMsg);
       }
       syncData();
-      renderAll();
     }
 
     function handleAcknowledgeCorrection(pkgId, vseId, stageIdx) {
@@ -925,7 +909,6 @@
       st.correctionNote = null;
       addNotification(`👍 ${creatorName} acknowledged the correction note on ${vse.fileName || vse.partNumber} (${st.name})`, "info");
       syncData();
-      renderAll();
     }
 
     function openReworkModal(pkgId, vseId, stageIdx) {
@@ -971,7 +954,6 @@
       notifyOnTeams(targetOwner, teamsMsg);
 
       syncData();
-      renderAll();
     }
 
     function openMinorModal(pkgId, vseId, stageIdx) {
@@ -1376,9 +1358,7 @@
       modalFileRowCount = 0;
       document.getElementById('modalGlobalType').value = "VSE_BOM";
       renderModalFilesList();
-      
       addModalFileRow("", "Nageswari", "Rohini", "Sathya", "Indhu");
-
       document.getElementById('createModal').classList.remove('hidden');
     }
 
@@ -1468,7 +1448,6 @@
       closeModal();
       addNotification(`New Allocation Created (${mode === 'VSE_BOM' ? bomName : mode}) with ${vseList.length} Files`, "info");
       syncData();
-      renderAll();
     }
 
     function downloadDailyReport() {
@@ -1561,25 +1540,21 @@
       });
 
       const csvContent = "data:text/csv;charset=utf-8," + csvRows.map(e => e.join(",")).join("\n");
-      const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
+      link.setAttribute("href", encodeURI(csvContent));
       link.setAttribute("download", `Pricing_Work_Allocation_${currentDate}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     }
 
-    // Polling Interval: Auto check cloud updates every 3 seconds
-    setInterval(() => {
-      fetchCloudData();
-    }, 3000);
-
-    // Initial Execution
+    // =========================================================================
+    // 4. INITIAL EXECUTION
+    // =========================================================================
     window.addEventListener('DOMContentLoaded', () => {
       setInitialDate();
       initHeaderDropdowns();
-      fetchCloudData();
+      listenToDateData();
     });
   </script>
 </body>
