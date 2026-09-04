@@ -88,28 +88,35 @@
       </div>
     </div>
 
-    <!-- Team Performance Summary Table -->
-    <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
-          <span>📊</span> Team Daily Performance Overview (<span id="summaryDateLabel" class="text-blue-600"></span>)
-        </h3>
+    <!-- Enhanced Highlighted Team Performance Summary Table -->
+    <div class="bg-white border border-slate-300 rounded-2xl p-6 shadow-md ring-1 ring-slate-200/70">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">📊</span>
+          <h3 class="font-extrabold text-base text-slate-900">
+            Team Daily Performance Overview (<span id="summaryDateLabel" class="text-blue-600 font-mono"></span>)
+          </h3>
+        </div>
+        <span class="text-[11px] bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-bold border border-slate-200">
+          Live Status
+        </span>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs text-slate-700">
-          <thead class="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider border-b border-slate-200">
+
+      <div class="overflow-x-auto rounded-xl border border-slate-200">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead class="bg-slate-100/90 text-slate-700 uppercase text-[11px] tracking-wider border-b border-slate-300">
             <tr>
-              <th class="py-2.5 px-3">Resource Name</th>
-              <th class="py-2.5 px-3 text-center">VSE Creation</th>
-              <th class="py-2.5 px-3 text-center">VSE Review</th>
-              <th class="py-2.5 px-3 text-center">PDF Prep</th>
-              <th class="py-2.5 px-3 text-center">Prep Review</th>
-              <th class="py-2.5 px-3 text-center">Lum. Upload</th>
-              <th class="py-2.5 px-3 text-center">Lum. Review</th>
-              <th class="py-2.5 px-3 text-center font-bold text-blue-600">Total Done</th>
+              <th class="py-3.5 px-4 font-extrabold text-slate-800 border-r border-slate-200">Resource Name</th>
+              <th class="py-3.5 px-3 text-center font-bold border-r border-slate-200">VSE Creation</th>
+              <th class="py-3.5 px-3 text-center font-bold border-r border-slate-200">VSE Review</th>
+              <th class="py-3.5 px-3 text-center font-bold border-r border-slate-200">PDF Prep</th>
+              <th class="py-3.5 px-3 text-center font-bold border-r border-slate-200">Prep Review</th>
+              <th class="py-3.5 px-3 text-center font-bold border-r border-slate-200">Lum. Upload</th>
+              <th class="py-3.5 px-3 text-center font-bold border-r border-slate-200">Lum. Review</th>
+              <th class="py-3.5 px-4 text-center font-black text-blue-700 bg-blue-100/70">TOTAL DONE</th>
             </tr>
           </thead>
-          <tbody id="teamSummaryBody" class="divide-y divide-slate-100"></tbody>
+          <tbody id="teamSummaryBody" class="divide-y divide-slate-200 bg-white"></tbody>
         </table>
       </div>
     </div>
@@ -344,7 +351,7 @@
     let bomPackages = [];
     let notifications = [];
 
-    let currentEditingPkgId = null; // Holds package ID when editing
+    let currentEditingPkgId = null;
 
     let currentReworkContext = null;
     let currentMinorContext = null;
@@ -521,6 +528,9 @@
       document.getElementById('existsLuminovoCount').innerText = existsCount;
     }
 
+    // =========================================================================
+    // ENHANCED TABLE RENDERING: Highlighting & Distinctions
+    // =========================================================================
     function renderTeamSummary() {
       const counts = {};
       ALL_MEMBERS.forEach(m => {
@@ -543,19 +553,49 @@
         });
       });
 
+      const cellBadge = (val) => {
+        if (val > 0) {
+          return `
+            <span class="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+              ${val}
+            </span>
+          `;
+        }
+        return `<span class="text-slate-300 font-normal">0</span>`;
+      };
+
+      const totalBadge = (val) => {
+        if (val > 0) {
+          return `
+            <span class="inline-flex items-center justify-center min-w-[32px] px-2.5 py-1 rounded-full text-xs font-black bg-blue-600 text-white shadow-sm ring-2 ring-blue-200">
+              ${val}
+            </span>
+          `;
+        }
+        return `<span class="text-slate-300 font-bold">0</span>`;
+      };
+
       const tbody = document.getElementById('teamSummaryBody');
-      tbody.innerHTML = ALL_MEMBERS.map(m => `
-        <tr class="hover:bg-slate-50 transition">
-          <td class="py-2.5 px-3 font-semibold text-slate-800">${m}</td>
-          <td class="py-2.5 px-3 text-center font-mono ${counts[m].vseCreation ? 'text-emerald-600 font-bold' : 'text-slate-400'}">${counts[m].vseCreation}</td>
-          <td class="py-2.5 px-3 text-center font-mono ${counts[m].vseReview ? 'text-emerald-600 font-bold' : 'text-slate-400'}">${counts[m].vseReview}</td>
-          <td class="py-2.5 px-3 text-center font-mono ${counts[m].pdfPrep ? 'text-emerald-600 font-bold' : 'text-slate-400'}">${counts[m].pdfPrep}</td>
-          <td class="py-2.5 px-3 text-center font-mono ${counts[m].prepReview ? 'text-emerald-600 font-bold' : 'text-slate-400'}">${counts[m].prepReview}</td>
-          <td class="py-2.5 px-3 text-center font-mono ${counts[m].lumUpload ? 'text-emerald-600 font-bold' : 'text-slate-400'}">${counts[m].lumUpload}</td>
-          <td class="py-2.5 px-3 text-center font-mono ${counts[m].lumReview ? 'text-emerald-600 font-bold' : 'text-slate-400'}">${counts[m].lumReview}</td>
-          <td class="py-2.5 px-3 text-center font-mono font-bold text-blue-600 bg-slate-50">${counts[m].total}</td>
-        </tr>
-      `).join('');
+      tbody.innerHTML = ALL_MEMBERS.map((m, idx) => {
+        const hasWork = counts[m].total > 0;
+        const rowBg = hasWork ? 'bg-blue-50/20 hover:bg-blue-50/50' : (idx % 2 === 0 ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/50 hover:bg-slate-100/60');
+        
+        return `
+          <tr class="${rowBg} transition duration-150">
+            <td class="py-3 px-4 font-bold ${hasWork ? 'text-blue-900 font-extrabold' : 'text-slate-700'} border-r border-slate-200 flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full ${hasWork ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}"></span>
+              ${m}
+            </td>
+            <td class="py-3 px-3 text-center border-r border-slate-200 font-mono">${cellBadge(counts[m].vseCreation)}</td>
+            <td class="py-3 px-3 text-center border-r border-slate-200 font-mono">${cellBadge(counts[m].vseReview)}</td>
+            <td class="py-3 px-3 text-center border-r border-slate-200 font-mono">${cellBadge(counts[m].pdfPrep)}</td>
+            <td class="py-3 px-3 text-center border-r border-slate-200 font-mono">${cellBadge(counts[m].prepReview)}</td>
+            <td class="py-3 px-3 text-center border-r border-slate-200 font-mono">${cellBadge(counts[m].lumUpload)}</td>
+            <td class="py-3 px-3 text-center border-r border-slate-200 font-mono">${cellBadge(counts[m].lumReview)}</td>
+            <td class="py-3 px-4 text-center font-mono bg-blue-50/60 border-l border-blue-200">${totalBadge(counts[m].total)}</td>
+          </tr>
+        `;
+      }).join('');
     }
 
     function toggleAlreadyExists(pkgId, vseId) {
@@ -1003,7 +1043,7 @@
     }
 
     // =========================================================================
-    // 4. EDIT & DELETE ALLOCATION IMPLEMENTATION
+    // EDIT & DELETE ALLOCATION
     // =========================================================================
     function editAllocation(pkgId) {
       const pkg = bomPackages.find(p => p.id === pkgId);
@@ -1684,7 +1724,7 @@
     }
 
     // =========================================================================
-    // 5. INITIAL EXECUTION
+    // INITIAL EXECUTION
     // =========================================================================
     window.addEventListener('DOMContentLoaded', () => {
       setInitialDate();
