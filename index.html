@@ -136,13 +136,16 @@
     </div>
   </div>
 
-  <!-- Create Modal -->
+  <!-- Create / Edit Modal -->
   <div id="createModal" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-white border border-slate-200 rounded-2xl p-6 w-full max-w-5xl shadow-2xl max-h-[90vh] flex flex-col">
-      <h3 class="text-lg font-bold text-slate-900 mb-1">Create Task Allocation</h3>
-      <p class="text-xs text-slate-500 mb-4">Select Workflow Type and assign individual owners for each stage.</p>
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="text-lg font-bold text-slate-900" id="modalTitle">Create Task Allocation</h3>
+        <span id="editModeBadge" class="hidden bg-amber-100 text-amber-800 text-[11px] font-bold px-2 py-0.5 rounded-full border border-amber-300">Edit Mode</span>
+      </div>
+      <p class="text-xs text-slate-500 mb-4" id="modalSubtitle">Select Workflow Type and assign individual owners for each stage.</p>
       
-      <form onsubmit="handleCreateTask(event)" class="space-y-4 overflow-y-auto pr-2 flex-1">
+      <form onsubmit="handleSaveTask(event)" class="space-y-4 overflow-y-auto pr-2 flex-1">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 border border-slate-200 p-3.5 rounded-xl">
           <div>
             <label class="block text-xs font-bold text-blue-700 mb-1 uppercase">Workflow Mode</label>
@@ -173,7 +176,7 @@
 
         <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
           <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800">Cancel</button>
-          <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl text-xs font-bold shadow">Save & Allocate All</button>
+          <button type="submit" id="modalSubmitBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl text-xs font-bold shadow">Save & Allocate All</button>
         </div>
       </form>
     </div>
@@ -340,6 +343,8 @@
     let shipmentBy = "Saritha";
     let bomPackages = [];
     let notifications = [];
+
+    let currentEditingPkgId = null; // Holds package ID when editing
 
     let currentReworkContext = null;
     let currentMinorContext = null;
@@ -997,6 +1002,52 @@
       addNotification(`✍️ Reviewer Note: ${reviewer} updated ${displayName} & notified ${creator}: "${note}"`, "minor");
     }
 
+    // =========================================================================
+    // 4. EDIT & DELETE ALLOCATION IMPLEMENTATION
+    // =========================================================================
+    function editAllocation(pkgId) {
+      const pkg = bomPackages.find(p => p.id === pkgId);
+      if (!pkg) return;
+
+      currentEditingPkgId = pkgId;
+
+      document.getElementById('modalTitle').innerText = "Edit Task Allocation";
+      document.getElementById('modalSubtitle').innerText = "Modify Workflow Type, BoM name, part numbers, or stage assignees.";
+      document.getElementById('editModeBadge').classList.remove('hidden');
+      document.getElementById('modalSubmitBtn').innerText = "Update Allocation Changes ✔";
+
+      document.getElementById('modalGlobalType').value = pkg.workflowMode;
+      document.getElementById('inputBomName').value = pkg.bomName || "";
+
+      renderModalFilesList();
+
+      document.getElementById('modalFilesList').innerHTML = "";
+      modalFileRowCount = 0;
+
+      pkg.vseList.forEach((vse) => {
+        const valToSet = vse.fileName || vse.partNumber;
+        const s1 = vse.stages[0]?.owner || "";
+        const s2 = vse.stages[1]?.owner || "";
+        const s3 = vse.stages[2]?.owner || "";
+        const s4 = vse.stages[3]?.owner || "";
+        addModalFileRow(valToSet, s1, s2, s3, s4, vse.id);
+      });
+
+      document.getElementById('createModal').classList.remove('hidden');
+    }
+
+    function deleteAllocation(pkgId) {
+      const pkg = bomPackages.find(p => p.id === pkgId);
+      if (!pkg) return;
+
+      const name = pkg.bomName || `${pkg.vseList.length} files`;
+      if (confirm(`Are you sure you want to delete allocation "${name}"? This action cannot be undone.`)) {
+        bomPackages = bomPackages.filter(p => p.id !== pkgId);
+        addNotification(`🗑️ Deleted Allocation: ${name}`, "rework");
+        syncData();
+      }
+    }
+
     function renderCards() {
       const container = document.getElementById('cardsContainer');
       if (bomPackages.length === 0) {
@@ -1199,15 +1250,25 @@
                 <p class="text-xs text-slate-500">${isVseMode ? 'VSE BoM Files Progress' : 'Files Progress'}: <span class="text-slate-800 font-bold">${doneCount} of ${pkg.vseList.length} Completed</span></p>
               </div>
 
-              ${allCompleted ? `
-                <div class="bg-emerald-600 text-white font-black text-xs px-3.5 py-1.5 rounded-full uppercase tracking-wider shadow">
-                  ✔ ALL ${pkg.vseList.length} ${isVseMode ? 'VSE BOM ' : ''}FILES COMPLETED
-                </div>
-              ` : `
-                <div class="bg-blue-50 text-blue-700 border border-blue-200 font-bold text-xs px-3 py-1 rounded-full uppercase">
-                  ⚡ ${pkg.vseList.length} ${isVseMode ? 'VSE BOM ' : ''}FILES ALLOCATED
-                </div>
-              `}
+              <!-- Header Badges & Actions (Edit + Delete) -->
+              <div class="flex items-center gap-2 flex-wrap">
+                ${allCompleted ? `
+                  <div class="bg-emerald-600 text-white font-black text-xs px-3 py-1.5 rounded-full uppercase tracking-wider shadow">
+                    ✔ ALL ${pkg.vseList.length} COMPLETED
+                  </div>
+                ` : `
+                  <div class="bg-blue-50 text-blue-700 border border-blue-200 font-bold text-xs px-3 py-1 rounded-full uppercase">
+                    ⚡ ${pkg.vseList.length} ALLOCATED
+                  </div>
+                `}
+
+                <button onclick="editAllocation('${pkg.id}')" title="Edit entire allocation" class="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 font-bold text-xs px-3 py-1 rounded-lg transition shadow-xs flex items-center gap-1">
+                  <span>✏️</span> Edit
+                </button>
+                <button onclick="deleteAllocation('${pkg.id}')" title="Delete allocation" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold text-xs px-2.5 py-1 rounded-lg transition shadow-xs flex items-center gap-1">
+                  <span>🗑️</span>
+                </button>
+              </div>
             </div>
 
             <div class="mt-4 space-y-3">
@@ -1306,7 +1367,7 @@
       }
     }
 
-    function addModalFileRow(defaultPart = "", defaultAssignee = "", defaultReviewer = "", defaultLumUpload = "", defaultLumReview = "") {
+    function addModalFileRow(defaultPart = "", defaultAssignee = "", defaultReviewer = "", defaultLumUpload = "", defaultLumReview = "", existingVseId = "") {
       modalFileRowCount++;
       const id = modalFileRowCount;
       const container = document.getElementById('modalFilesList');
@@ -1325,6 +1386,7 @@
 
       const div = document.createElement('div');
       div.id = `modal-row-${id}`;
+      div.dataset.existingVseId = existingVseId || "";
       div.className = "p-3 bg-white border border-slate-200 rounded-xl space-y-2.5 shadow-xs";
       div.innerHTML = `
         <div class="flex items-center justify-between border-b border-slate-200 pb-1.5">
@@ -1374,6 +1436,12 @@
     }
 
     function openModal() {
+      currentEditingPkgId = null;
+      document.getElementById('modalTitle').innerText = "Create Task Allocation";
+      document.getElementById('modalSubtitle').innerText = "Select Workflow Type and assign individual owners for each stage.";
+      document.getElementById('editModeBadge').classList.add('hidden');
+      document.getElementById('modalSubmitBtn').innerText = "Save & Allocate All";
+
       document.getElementById('modalFilesList').innerHTML = "";
       modalFileRowCount = 0;
       document.getElementById('modalGlobalType').value = "";
@@ -1386,9 +1454,10 @@
 
     function closeModal() {
       document.getElementById('createModal').classList.add('hidden');
+      currentEditingPkgId = null;
     }
 
-    function handleCreateTask(e) {
+    function handleSaveTask(e) {
       e.preventDefault();
       const mode = document.getElementById('modalGlobalType').value;
       if (!mode) {
@@ -1406,12 +1475,15 @@
       const fileRows = document.querySelectorAll('#modalFilesList > div');
       const vseList = [];
 
+      const existingPkg = currentEditingPkgId ? bomPackages.find(p => p.id === currentEditingPkgId) : null;
+
       for (let row of fileRows) {
         const inputVal = row.querySelector('input[name="vseFileName"]').value.trim();
         const s1Owner = row.querySelector('select[name="vseAssignee"]').value;
         const s2Owner = row.querySelector('select[name="vseReviewer"]').value;
         const s3Owner = row.querySelector('select[name="vseLumUpload"]')?.value;
         const s4Owner = row.querySelector('select[name="vseLumReview"]')?.value;
+        const existingVseId = row.dataset.existingVseId;
 
         if (mode === 'VSE_BOM' || mode === 'PDF_TO_LUM') {
           if (!s1Owner || !s2Owner || !s3Owner || !s4Owner) {
@@ -1426,25 +1498,37 @@
         }
 
         if (inputVal) {
+          const oldVse = existingPkg ? existingPkg.vseList.find(v => v.id === existingVseId) : null;
+
+          const buildStage = (name, newOwner, stageIdx) => {
+            if (oldVse && oldVse.stages && oldVse.stages[stageIdx] && oldVse.stages[stageIdx].name === name) {
+              return {
+                ...oldVse.stages[stageIdx],
+                owner: newOwner
+              };
+            }
+            return { name, owner: newOwner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null };
+          };
+
           let stages = [];
           if (mode === 'VSE_BOM') {
             stages = [
-              { name: "VSE Creation", owner: s1Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null },
-              { name: "VSE Review", owner: s2Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null },
-              { name: "Luminovo Upload", owner: s3Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null },
-              { name: "Luminovo Review", owner: s4Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null }
+              buildStage("VSE Creation", s1Owner, 0),
+              buildStage("VSE Review", s2Owner, 1),
+              buildStage("Luminovo Upload", s3Owner, 2),
+              buildStage("Luminovo Review", s4Owner, 3)
             ];
           } else if (mode === 'PDF_TO_LUM') {
             stages = [
-              { name: "PDF to Excel Prep", owner: s1Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null },
-              { name: "Prep Review", owner: s2Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null },
-              { name: "Luminovo Upload", owner: s3Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null },
-              { name: "Luminovo Review", owner: s4Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null }
+              buildStage("PDF to Excel Prep", s1Owner, 0),
+              buildStage("Prep Review", s2Owner, 1),
+              buildStage("Luminovo Upload", s3Owner, 2),
+              buildStage("Luminovo Review", s4Owner, 3)
             ];
           } else if (mode === 'DIRECT_LUM') {
             stages = [
-              { name: "Luminovo Upload", owner: s1Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null },
-              { name: "Luminovo Review", owner: s2Owner || s1Owner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null }
+              buildStage("Luminovo Upload", s1Owner, 0),
+              buildStage("Luminovo Review", s2Owner || s1Owner, 1)
             ];
           }
 
@@ -1458,7 +1542,7 @@
               partNumber = pMatch ? pMatch[1] : inputVal;
             } else {
               partNumber = inputVal;
-              fileName = "";
+              fileName = oldVse?.fileName || "";
             }
           } else {
             fileName = inputVal;
@@ -1466,11 +1550,11 @@
           }
 
           vseList.push({
-            id: `vse-${Date.now()}-${vseList.length}`,
+            id: existingVseId || `vse-${Date.now()}-${vseList.length}`,
             partNumber: partNumber,
             fileName: fileName,
-            alreadyExistsInLuminovo: false,
-            emailHandoverNotes: [],
+            alreadyExistsInLuminovo: oldVse ? oldVse.alreadyExistsInLuminovo : false,
+            emailHandoverNotes: oldVse ? (oldVse.emailHandoverNotes || []) : [],
             stages: stages
           });
         }
@@ -1478,16 +1562,26 @@
 
       if (vseList.length === 0) return;
 
-      bomPackages.unshift({
-        id: "bom-pkg-" + Date.now(),
-        bomName: bomName,
-        workflowMode: mode,
-        vseList: vseList
-      });
+      if (currentEditingPkgId) {
+        const pkgIndex = bomPackages.findIndex(p => p.id === currentEditingPkgId);
+        if (pkgIndex !== -1) {
+          bomPackages[pkgIndex].bomName = bomName;
+          bomPackages[pkgIndex].workflowMode = mode;
+          bomPackages[pkgIndex].vseList = vseList;
+        }
+        addNotification(`✏️ Allocation Updated: ${mode === 'VSE_BOM' ? bomName : mode} (${vseList.length} Files)`, "info");
+      } else {
+        bomPackages.unshift({
+          id: "bom-pkg-" + Date.now(),
+          bomName: bomName,
+          workflowMode: mode,
+          vseList: vseList
+        });
+        addNotification(`New Allocation Created: ${mode === 'VSE_BOM' ? bomName : mode} (${vseList.length} Files)`, "info");
+      }
 
       document.getElementById('inputBomName').value = "";
       closeModal();
-      addNotification(`New Allocation Created (${mode === 'VSE_BOM' ? bomName : mode}) with ${vseList.length} Files`, "info");
       syncData();
     }
 
@@ -1590,7 +1684,7 @@
     }
 
     // =========================================================================
-    // 4. INITIAL EXECUTION
+    // 5. INITIAL EXECUTION
     // =========================================================================
     window.addEventListener('DOMContentLoaded', () => {
       setInitialDate();
