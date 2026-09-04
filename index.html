@@ -69,9 +69,9 @@
     </header>
 
     <!-- Metrics Bar -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
       <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-        <p class="text-xs text-slate-500 font-semibold">Active Team Members</p>
+        <p class="text-xs text-slate-500 font-semibold">Active Members</p>
         <p class="text-2xl font-bold text-slate-900 mt-1">7 Resources</p>
       </div>
       <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
@@ -86,9 +86,13 @@
         <p class="text-xs text-amber-600 font-semibold">Exists in Luminovo</p>
         <p class="text-2xl font-bold text-amber-600 mt-1" id="existsLuminovoCount">0</p>
       </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <p class="text-xs text-rose-600 font-semibold">Pending Files</p>
+        <p class="text-2xl font-bold text-rose-600 mt-1" id="pendingFilesCount">0</p>
+      </div>
     </div>
 
-    <!-- Team Performance Summary Table -->
+    <!-- Enhanced Highlighted Team Performance Summary Table -->
     <div class="bg-white border border-slate-300 rounded-2xl p-6 shadow-md ring-1 ring-slate-200/70">
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -211,6 +215,32 @@
         <button type="button" onclick="copyEmailText()" class="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow flex items-center gap-1.5">
           <span id="copyBtnIcon">📋</span> <span id="copyBtnLabel">Copy Email Text</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pending Reason Modal -->
+  <div id="pendingModal" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div class="bg-white border border-amber-300 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="text-amber-500 text-2xl">⏳</span>
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Mark File as Pending</h3>
+          <p class="text-[11px] text-slate-500">Provide reason or status for the daily dispatch email.</p>
+        </div>
+      </div>
+      <p id="pendingTargetInfo" class="text-xs text-slate-700 mb-4 bg-slate-50 p-2.5 rounded-lg border border-slate-200"></p>
+      
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Pending Reason / Remarks:</label>
+          <textarea id="inputPendingReason" rows="3" placeholder="e.g. Waiting for customer clarification, BOM mismatch, under engineering query..." class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"></textarea>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-200">
+        <button type="button" onclick="closePendingModal()" class="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800">Cancel</button>
+        <button type="button" onclick="submitPending()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow">Save as Pending ⏳</button>
       </div>
     </div>
   </div>
@@ -353,6 +383,7 @@
 
     let currentEditingPkgId = null;
 
+    let currentPendingContext = null;
     let currentReworkContext = null;
     let currentMinorContext = null;
     let currentCreationContext = null;
@@ -492,6 +523,7 @@
           n.type === 'alert' ? 'bg-blue-50 border-blue-200 text-blue-900' :
           n.type === 'minor' ? 'bg-indigo-50 border-indigo-200 text-indigo-900' :
           n.type === 'rework' ? 'bg-rose-50 border-rose-200 text-rose-900' :
+          n.type === 'pending' ? 'bg-amber-50 border-amber-300 text-amber-900' :
           n.type === 'shipment' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' :
           n.type === 'success' ? 'bg-emerald-50 border-emerald-300 text-emerald-900' :
           'bg-white border-slate-200 text-slate-700 shadow-xs'
@@ -505,6 +537,7 @@
     }
 
     function isVseFullyCompleted(vse) {
+      if (vse.isPending) return false;
       if (vse.alreadyExistsInLuminovo) {
         const nonLumStages = vse.stages.filter(st => !st.name.includes("Luminovo") && !st.name.includes("Lum"));
         return nonLumStages.length === 0 || nonLumStages.every(st => st.status === 'COMPLETED');
@@ -515,17 +548,20 @@
     function renderMetrics() {
       let totalVse = 0;
       let existsCount = 0;
+      let pendingCount = 0;
 
       bomPackages.forEach(pkg => {
         pkg.vseList.forEach(v => {
           totalVse++;
           if (v.alreadyExistsInLuminovo) existsCount++;
+          if (v.isPending) pendingCount++;
         });
       });
 
       document.getElementById('totalBomsCount').innerText = bomPackages.length;
       document.getElementById('totalVseFilesCount').innerText = totalVse;
       document.getElementById('existsLuminovoCount').innerText = existsCount;
+      document.getElementById('pendingFilesCount').innerText = pendingCount;
     }
 
     // =========================================================================
@@ -622,6 +658,52 @@
       syncData();
     }
 
+    // =========================================================================
+    // PENDING FEATURE IMPLEMENTATION
+    // =========================================================================
+    function togglePendingModal(pkgId, vseId) {
+      const pkg = bomPackages.find(p => p.id === pkgId);
+      const vse = pkg.vseList.find(v => v.id === vseId);
+
+      if (vse.isPending) {
+        // Unmark Pending
+        vse.isPending = false;
+        vse.pendingReason = "";
+        addNotification(`🔄 Pending Cleared: ${vse.fileName || vse.partNumber} resumed normal workflow`, "info");
+        syncData();
+        return;
+      }
+
+      currentPendingContext = { pkgId, vseId, displayName: vse.fileName || vse.partNumber };
+      document.getElementById('pendingTargetInfo').innerHTML = `
+        File: <b>${vse.fileName || vse.partNumber}</b><br>
+        Current BoM: <b>${pkg.bomName || pkg.workflowMode}</b>
+      `;
+      document.getElementById('inputPendingReason').value = vse.pendingReason || "";
+      document.getElementById('pendingModal').classList.remove('hidden');
+    }
+
+    function closePendingModal() {
+      document.getElementById('pendingModal').classList.add('hidden');
+      currentPendingContext = null;
+    }
+
+    function submitPending() {
+      if (!currentPendingContext) return;
+      const reason = document.getElementById('inputPendingReason').value.trim();
+      const { pkgId, vseId, displayName } = currentPendingContext;
+
+      const pkg = bomPackages.find(p => p.id === pkgId);
+      const vse = pkg.vseList.find(v => v.id === vseId);
+
+      vse.isPending = true;
+      vse.pendingReason = reason || "In progress / Pending confirmation";
+
+      addNotification(`⏳ File Marked PENDING: ${displayName} - Reason: ${vse.pendingReason}`, "pending");
+      closePendingModal();
+      syncData();
+    }
+
     function openShipmentNoteModal(pkgId, vseId) {
       const pkg = bomPackages.find(p => p.id === pkgId);
       const vse = pkg.vseList.find(v => v.id === vseId);
@@ -661,23 +743,36 @@
       syncData();
     }
 
+    // =========================================================================
+    // DISPATCH EMAIL WITH PENDING SECTION
+    // =========================================================================
     function generateEmailText() {
       let createdVseBoms = [];
       let alreadyExistsFiles = [];
       let luminovoFiles = [];
+      let pendingFiles = [];
       let notes = [];
 
       bomPackages.forEach(pkg => {
         if (pkg.workflowMode === 'VSE_BOM' && pkg.bomName) {
-          if (!createdVseBoms.includes(pkg.bomName)) createdVseBoms.push(pkg.bomName);
+          const hasCompletedVse = pkg.vseList.some(v => isVseFullyCompleted(v));
+          if (hasCompletedVse && !createdVseBoms.includes(pkg.bomName)) {
+            createdVseBoms.push(pkg.bomName);
+          }
         }
 
         pkg.vseList.forEach(vse => {
           const fileName = vse.fileName || vse.partNumber;
-          if (vse.alreadyExistsInLuminovo) {
+          
+          if (vse.isPending) {
+            pendingFiles.push({
+              name: fileName,
+              reason: vse.pendingReason ? ` (${vse.pendingReason})` : ''
+            });
+          } else if (vse.alreadyExistsInLuminovo) {
             alreadyExistsFiles.push(fileName);
           } else if (pkg.workflowMode === 'PDF_TO_LUM' || pkg.workflowMode === 'DIRECT_LUM') {
-            luminovoFiles.push(fileName);
+            if (isVseFullyCompleted(vse)) luminovoFiles.push(fileName);
           }
 
           if (vse.emailHandoverNotes && vse.emailHandoverNotes.length > 0) {
@@ -714,6 +809,14 @@
         emailText += `\n`;
       }
 
+      if (pendingFiles.length > 0) {
+        emailText += `Pending / In-Progress Files:\n\n`;
+        pendingFiles.forEach(p => {
+          emailText += `    ${p.name}${p.reason}\n`;
+        });
+        emailText += `\n`;
+      }
+
       if (notes.length > 0) {
         emailText += `Note:\n`;
         notes.forEach(note => {
@@ -737,19 +840,28 @@
       let createdVseBoms = [];
       let alreadyExistsFiles = [];
       let luminovoFiles = [];
+      let pendingFiles = [];
       let notes = [];
 
       bomPackages.forEach(pkg => {
         if (pkg.workflowMode === 'VSE_BOM' && pkg.bomName) {
-          if (!createdVseBoms.includes(pkg.bomName)) createdVseBoms.push(pkg.bomName);
+          const hasCompletedVse = pkg.vseList.some(v => isVseFullyCompleted(v));
+          if (hasCompletedVse && !createdVseBoms.includes(pkg.bomName)) {
+            createdVseBoms.push(pkg.bomName);
+          }
         }
 
         pkg.vseList.forEach(vse => {
           const fileName = vse.fileName || vse.partNumber;
-          if (vse.alreadyExistsInLuminovo) {
+          if (vse.isPending) {
+            pendingFiles.push({
+              name: fileName,
+              reason: vse.pendingReason ? ` (${vse.pendingReason})` : ''
+            });
+          } else if (vse.alreadyExistsInLuminovo) {
             alreadyExistsFiles.push(fileName);
           } else if (pkg.workflowMode === 'PDF_TO_LUM' || pkg.workflowMode === 'DIRECT_LUM') {
-            luminovoFiles.push(fileName);
+            if (isVseFullyCompleted(vse)) luminovoFiles.push(fileName);
           }
 
           if (vse.emailHandoverNotes && vse.emailHandoverNotes.length > 0) {
@@ -801,6 +913,13 @@
             <p class="section-title">Luminovo Files:</p>
             <div class="item-list">
               ${luminovoFiles.map(file => `<p style="margin:2pt 0; font-family:Consolas, monospace;">${file}</p>`).join('')}
+            </div>
+          ` : ''}
+
+          ${pendingFiles.length > 0 ? `
+            <p class="section-title" style="color:#b45309;">Pending / In-Progress Files:</p>
+            <div class="item-list">
+              ${pendingFiles.map(p => `<p style="margin:2pt 0; font-family:Consolas, monospace; color:#b45309;">${p.name}${p.reason}</p>`).join('')}
             </div>
           ` : ''}
 
@@ -1113,6 +1232,7 @@
 
         let vseFilesHtml = pkg.vseList.map((vse, vIdx) => {
           const isFileDone = isVseFullyCompleted(vse);
+          const isPending = !!vse.isPending;
 
           let stagesHtml = vse.stages.map((st, idx) => {
             const isLumStage = st.name.includes("Luminovo") || st.name.includes("Lum");
@@ -1125,7 +1245,13 @@
             const hasCorrectionNote = !!st.correctionNote;
 
             let buttonHtml = '';
-            if (isSkippedByExist) {
+            if (isPending) {
+              buttonHtml = `
+                <div class="text-center py-1 bg-amber-50 border border-amber-200 rounded text-[10px] text-amber-700 font-bold">
+                  ⏸ Paused (Pending)
+                </div>
+              `;
+            } else if (isSkippedByExist) {
               buttonHtml = `
                 <div class="text-center py-1 bg-amber-50 border border-amber-200 rounded text-[10px] text-amber-700 font-bold">
                   ⏩ Skipped (Exists)
@@ -1185,6 +1311,7 @@
 
             return `
               <div class="p-2.5 rounded-xl border text-xs flex flex-col justify-between ${
+                isPending ? 'bg-amber-50/40 border-amber-200 text-amber-900' :
                 isSkippedByExist ? 'bg-slate-50 border-slate-200 text-slate-400' :
                 isDone ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950' :
                 isRunning ? 'bg-blue-50/70 border-blue-400 text-blue-950 ring-1 ring-blue-400' :
@@ -1248,7 +1375,7 @@
           };
 
           return `
-            <div class="p-3.5 bg-white border ${isFileDone ? 'border-emerald-300 bg-emerald-50/20' : 'border-slate-200'} rounded-xl space-y-2 shadow-sm">
+            <div class="p-3.5 bg-white border ${isPending ? 'border-amber-400 bg-amber-50/20' : isFileDone ? 'border-emerald-300 bg-emerald-50/20' : 'border-slate-200'} rounded-xl space-y-2 shadow-sm">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-xs font-bold text-slate-400">#${vIdx + 1}</span>
@@ -1256,17 +1383,27 @@
                   <span class="font-mono font-semibold text-xs text-blue-700">${vse.fileName ? vse.fileName : '<span class="text-slate-400 italic">File Name Pending Creation...</span>'}</span>
                   ${typeBadges[pkg.workflowMode] || ''}
                   ${vse.alreadyExistsInLuminovo ? '<span class="text-[9px] bg-amber-200 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full font-bold">ALREADY EXISTS IN LUMINOVO</span>' : ''}
+                  ${isPending ? `<span class="text-[9px] bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 rounded-full font-bold">PENDING: ${vse.pendingReason || 'Pending'}</span>` : ''}
                 </div>
                 <div class="flex items-center gap-2">
+                  <!-- Pending Button -->
+                  <button onclick="togglePendingModal('${pkg.id}', '${vse.id}')" class="text-[10px] px-2.5 py-1 rounded-lg font-bold border transition shadow-xs flex items-center gap-1 ${
+                    isPending ? 'bg-rose-600 text-white border-rose-700 hover:bg-rose-700' : 'bg-white text-rose-700 border-rose-300 hover:bg-rose-50'
+                  }">
+                    <span>⏳</span> ${isPending ? 'Pending Active ✕' : 'Mark Pending'}
+                  </button>
+
                   <button onclick="toggleAlreadyExists('${pkg.id}', '${vse.id}')" class="text-[10px] px-2 py-1 rounded font-bold border transition ${
                     vse.alreadyExistsInLuminovo ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                   }">
-                    ${vse.alreadyExistsInLuminovo ? '⚠️ Exists in Luminovo' : 'Mark Already Exists'}
+                    ${vse.alreadyExistsInLuminovo ? '⚠️ Exists in Lum' : 'Mark Exists'}
                   </button>
                   <button onclick="openShipmentNoteModal('${pkg.id}', '${vse.id}')" class="text-[10px] bg-white hover:bg-slate-50 text-emerald-700 border border-slate-300 px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1 shadow-sm">
-                    <span>✉️</span> Note to Email Report
+                    <span>✉️</span> Note
                   </button>
-                  ${isFileDone ? `
+                  ${isPending ? `
+                    <span class="text-[10px] font-bold bg-amber-500 text-slate-950 px-2 py-0.5 rounded-full shadow-sm">⏳ PENDING</span>
+                  ` : isFileDone ? `
                     <span class="text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded-full shadow-sm">✔ READY FOR EMAIL</span>
                   ` : `
                     <span class="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">IN PROGRESS</span>
@@ -1601,6 +1738,8 @@
             partNumber: partNumber,
             fileName: fileName,
             alreadyExistsInLuminovo: oldVse ? oldVse.alreadyExistsInLuminovo : false,
+            isPending: oldVse ? !!oldVse.isPending : false,
+            pendingReason: oldVse ? (oldVse.pendingReason || "") : "",
             emailHandoverNotes: oldVse ? (oldVse.emailHandoverNotes || []) : [],
             stages: stages
           });
@@ -1696,6 +1835,17 @@
           let uploadAssignee = vse.stages.find(s => s.name === "Luminovo Upload")?.owner || "-";
           let lumReviewer = vse.stages.find(s => s.name === "Luminovo Review")?.owner || "-";
 
+          let finalStatus = "";
+          if (vse.isPending) {
+            finalStatus = `PENDING (${vse.pendingReason || 'In Progress'})`;
+          } else if (vse.alreadyExistsInLuminovo) {
+            finalStatus = 'EXISTS IN LUMINOVO';
+          } else if (isFileDone) {
+            finalStatus = 'READY FOR EMAIL';
+          } else {
+            finalStatus = 'IN PROGRESS';
+          }
+
           csvRows.push([
             `"${idx === 0 ? (pkg.workflowMode === 'VSE_BOM' ? pkg.bomName : pkg.workflowMode) : ''}"`,
             `"${assigned1}"`,
@@ -1709,7 +1859,7 @@
             `"${vse.stages.find(s => s.name === 'Luminovo Upload')?.status || '-'}"`,
             `"${lumReviewer}"`,
             `"${vse.stages[vse.stages.length - 1].status}"`,
-            `"${vse.alreadyExistsInLuminovo ? 'EXISTS IN LUMINOVO' : isFileDone ? 'READY FOR EMAIL' : 'IN PROGRESS'}"`,
+            `"${finalStatus}"`,
             `"${reviewerNotes.join(' | ')}"`,
             `"${emailNotes}"`,
             `"${isFileDone ? currentDate : ''}"`,
