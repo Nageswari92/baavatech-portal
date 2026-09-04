@@ -39,12 +39,16 @@
 
         <div class="flex items-center gap-1.5 px-2 border-l border-slate-200">
           <label class="text-[11px] text-slate-500 font-semibold uppercase">Allocation By:</label>
-          <select id="headerAllocatedBy" onchange="saveHeaderRoles()" class="bg-white text-xs font-bold text-blue-700 px-2.5 py-1 rounded-lg border border-slate-300 focus:outline-none cursor-pointer"></select>
+          <select id="headerAllocatedBy" onchange="saveHeaderRoles()" class="bg-white text-xs font-bold text-blue-700 px-2.5 py-1 rounded-lg border border-slate-300 focus:outline-none cursor-pointer">
+            <option value="" disabled selected>-- Choose Name --</option>
+          </select>
         </div>
 
         <div class="flex items-center gap-1.5 px-2 border-l border-slate-200">
           <label class="text-[11px] text-slate-500 font-semibold uppercase">Shipment By:</label>
-          <select id="headerShipmentBy" onchange="saveHeaderRoles()" class="bg-white text-xs font-bold text-emerald-700 px-2.5 py-1 rounded-lg border border-slate-300 focus:outline-none cursor-pointer"></select>
+          <select id="headerShipmentBy" onchange="saveHeaderRoles()" class="bg-white text-xs font-bold text-emerald-700 px-2.5 py-1 rounded-lg border border-slate-300 focus:outline-none cursor-pointer">
+            <option value="" disabled selected>-- Choose Name --</option>
+          </select>
         </div>
 
         <!-- Action Buttons -->
@@ -376,8 +380,8 @@
     };
 
     let currentDate = "";
-    let allocatedBy = "Rohini";
-    let shipmentBy = "Saritha";
+    let allocatedBy = "";
+    let shipmentBy = "";
     let bomPackages = [];
     let notifications = [];
 
@@ -392,8 +396,15 @@
     function initHeaderDropdowns() {
       const allocSelect = document.getElementById('headerAllocatedBy');
       const shipSelect = document.getElementById('headerShipmentBy');
-      allocSelect.innerHTML = ALL_MEMBERS.map(m => `<option value="${m}" ${m === allocatedBy ? 'selected' : ''}>${m}</option>`).join('');
-      shipSelect.innerHTML = ALL_MEMBERS.map(m => `<option value="${m}" ${m === shipmentBy ? 'selected' : ''}>${m}</option>`).join('');
+      
+      const buildOptions = (currentVal) => {
+        let html = `<option value="" disabled ${!currentVal ? 'selected' : ''}>-- Choose Name --</option>`;
+        html += ALL_MEMBERS.map(m => `<option value="${m}" ${m === currentVal ? 'selected' : ''}>${m}</option>`).join('');
+        return html;
+      };
+
+      allocSelect.innerHTML = buildOptions(allocatedBy);
+      shipSelect.innerHTML = buildOptions(shipmentBy);
     }
 
     function setInitialDate() {
@@ -414,13 +425,13 @@
       dateRef.on('value', (snapshot) => {
         const dayData = snapshot.val();
         if (dayData) {
-          allocatedBy = dayData.roles?.allocatedBy || "Rohini";
-          shipmentBy = dayData.roles?.shipmentBy || "Saritha";
+          allocatedBy = dayData.roles?.allocatedBy || "";
+          shipmentBy = dayData.roles?.shipmentBy || "";
           bomPackages = dayData.bomPackages || [];
           notifications = dayData.notifications || [];
         } else {
-          allocatedBy = "Rohini";
-          shipmentBy = "Saritha";
+          allocatedBy = "";
+          shipmentBy = "";
           bomPackages = [];
           notifications = [{ text: `Portal ready for ${currentDate}`, time: getTimeStr(), type: "info" }];
         }
@@ -450,6 +461,8 @@
     function saveHeaderRoles() {
       allocatedBy = document.getElementById('headerAllocatedBy').value;
       shipmentBy = document.getElementById('headerShipmentBy').value;
+      if (allocatedBy) addNotification(`👤 Allocation By set to: ${allocatedBy}`, "info");
+      if (shipmentBy) addNotification(`📦 Shipment By set to: ${shipmentBy}`, "info");
       syncData();
     }
 
@@ -659,14 +672,13 @@
     }
 
     // =========================================================================
-    // PENDING FEATURE IMPLEMENTATION
+    // PENDING FEATURE
     // =========================================================================
     function togglePendingModal(pkgId, vseId) {
       const pkg = bomPackages.find(p => p.id === pkgId);
       const vse = pkg.vseList.find(v => v.id === vseId);
 
       if (vse.isPending) {
-        // Unmark Pending
         vse.isPending = false;
         vse.pendingReason = "";
         addNotification(`🔄 Pending Cleared: ${vse.fileName || vse.partNumber} resumed normal workflow`, "info");
@@ -711,7 +723,7 @@
 
       document.getElementById('shipmentNoteTargetInfo').innerHTML = `
         Adding Email Report Note for file: <b>${vse.fileName || vse.partNumber}</b><br>
-        Email Dispatch In-charge: <b>${shipmentBy}</b>
+        Email Dispatch In-charge: <b>${shipmentBy || 'Not Selected'}</b>
       `;
       document.getElementById('inputShipmentNote').value = "";
       document.getElementById('shipmentNoteModal').classList.remove('hidden');
@@ -733,7 +745,7 @@
 
       if (!vse.emailHandoverNotes) vse.emailHandoverNotes = [];
       vse.emailHandoverNotes.push({
-        from: shipmentBy,
+        from: shipmentBy || "In-charge",
         text: note,
         time: getTimeStr()
       });
@@ -744,7 +756,7 @@
     }
 
     // =========================================================================
-    // DISPATCH EMAIL WITH PENDING SECTION
+    // DISPATCH EMAIL
     // =========================================================================
     function generateEmailText() {
       let createdVseBoms = [];
@@ -783,7 +795,10 @@
         });
       });
 
-      let emailText = `Hi Rohini,\n\n`;
+      const recipient = allocatedBy || "Team";
+      const sender = shipmentBy || "BAVA TECH Team";
+
+      let emailText = `Hi ${recipient},\n\n`;
 
       if (createdVseBoms.length > 0) {
         emailText += `The following VSE BoM has been created and the Files has been Uploaded to Luminovo and "To VSE" Folder:\n\n`;
@@ -827,7 +842,7 @@
         emailText += `Note:\n    • All allocated files have been processed successfully.\n\n`;
       }
 
-      emailText += `Thanks & Regards,\n${shipmentBy}\nBAVA TECH`;
+      emailText += `Thanks & Regards,\n${sender}\nBAVA TECH`;
       return emailText;
     }
 
@@ -872,6 +887,9 @@
         });
       });
 
+      const recipient = allocatedBy || "Team";
+      const sender = shipmentBy || "BAVA TECH Team";
+
       let wordHtml = `
         <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
         <head>
@@ -888,12 +906,12 @@
         </head>
         <body>
           <div class="header-block">
-            <p><strong>To:</strong> Rohini R</p>
+            <p><strong>To:</strong> ${recipient}</p>
             <p><strong>Cc:</strong> Krishna KS; Nageswari A; Banumathi K; Rohini; Saritha T; Sathyapriya S; Indhu</p>
             <p><strong>Date:</strong> ${currentDate}</p>
           </div>
 
-          <p>Hi Rohini,</p>
+          <p>Hi ${recipient},</p>
 
           ${createdVseBoms.length > 0 ? `
             <p class="section-title">The following VSE BoM has been created and the Files has been Uploaded to Luminovo and "To VSE" Folder:</p>
@@ -928,7 +946,7 @@
             ${notes.length > 0 ? notes.map(n => `<p style="margin:2pt 0;">• ${n}</p>`).join('') : '<p style="margin:2pt 0;">• All allocated files have been processed successfully.</p>'}
           </div>
 
-          <p style="margin-top: 20pt;">Thanks & Regards,<br><strong>${shipmentBy}</strong><br>BAVA TECH</p>
+          <p style="margin-top: 20pt;">Thanks & Regards,<br><strong>${sender}</strong><br>BAVA TECH</p>
         </body>
         </html>
       `;
@@ -1044,11 +1062,14 @@
       st.reworkNote = null;
 
       const displayName = vse.fileName || `Part: ${vse.partNumber}`;
+      const notifyTarget = shipmentBy || allocatedBy || "Team";
 
       if (vse.alreadyExistsInLuminovo && (stageIdx === 1 || (stageIdx === 0 && vse.stages.length === 2))) {
-        addNotification(`🎉 File Completion: ${displayName} is COMPLETED (Exists in Luminovo). Ready for ${shipmentBy} to Email!`, "success");
-        const teamsMsg = `Hi ${shipmentBy},\n\nFile "${displayName}" is COMPLETED (Exists in Luminovo). Ready for Daily Dispatch Email.\n\nThanks,\n${st.owner}`;
-        notifyOnTeams(shipmentBy, teamsMsg);
+        addNotification(`🎉 File Completion: ${displayName} is COMPLETED (Exists in Luminovo). Ready for ${notifyTarget} to Email!`, "success");
+        if (shipmentBy) {
+          const teamsMsg = `Hi ${shipmentBy},\n\nFile "${displayName}" is COMPLETED (Exists in Luminovo). Ready for Daily Dispatch Email.\n\nThanks,\n${st.owner}`;
+          notifyOnTeams(shipmentBy, teamsMsg);
+        }
       } else if (stageIdx < vse.stages.length - 1) {
         const nextStage = vse.stages[stageIdx + 1];
         const nextOwner = nextStage.owner;
@@ -1058,9 +1079,11 @@
         const teamsMsg = `Hi ${nextOwner},\n\nI have completed ${st.name} for file "${displayName}".\nIt is now assigned to you for Stage ${stageIdx + 2} (${nextStage.name}) in the Work Allocation Portal.\n\nThanks,\n${st.owner}`;
         notifyOnTeams(nextOwner, teamsMsg);
       } else {
-        addNotification(`🎉 File Completion: ${displayName} is fully COMPLETED. Ready for ${shipmentBy} to Email!`, "success");
-        const teamsMsg = `Hi ${shipmentBy},\n\nFile "${displayName}" has passed all reviews and is COMPLETED. Ready for Daily Dispatch Email.\n\nThanks,\n${st.owner}`;
-        notifyOnTeams(shipmentBy, teamsMsg);
+        addNotification(`🎉 File Completion: ${displayName} is fully COMPLETED. Ready for ${notifyTarget} to Email!`, "success");
+        if (shipmentBy) {
+          const teamsMsg = `Hi ${shipmentBy},\n\nFile "${displayName}" has passed all reviews and is COMPLETED. Ready for Daily Dispatch Email.\n\nThanks,\n${st.owner}`;
+          notifyOnTeams(shipmentBy, teamsMsg);
+        }
       }
       syncData();
     }
@@ -1386,7 +1409,6 @@
                   ${isPending ? `<span class="text-[9px] bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 rounded-full font-bold">PENDING: ${vse.pendingReason || 'Pending'}</span>` : ''}
                 </div>
                 <div class="flex items-center gap-2">
-                  <!-- Pending Button -->
                   <button onclick="togglePendingModal('${pkg.id}', '${vse.id}')" class="text-[10px] px-2.5 py-1 rounded-lg font-bold border transition shadow-xs flex items-center gap-1 ${
                     isPending ? 'bg-rose-600 text-white border-rose-700 hover:bg-rose-700' : 'bg-white text-rose-700 border-rose-300 hover:bg-rose-50'
                   }">
@@ -1789,8 +1811,8 @@
       });
 
       let csvRows = [];
-      csvRows.push([`"Date"`, `"${currentDate}"`, `"Work Allocation"`, `"${allocatedBy}"`]);
-      csvRows.push([`"No. of resources working"`, `"${ALL_MEMBERS.length}"`, `"Shipment"`, `"${shipmentBy}"`]);
+      csvRows.push([`"Date"`, `"${currentDate}"`, `"Work Allocation"`, `"${allocatedBy || ''}"`]);
+      csvRows.push([`"No. of resources working"`, `"${ALL_MEMBERS.length}"`, `"Shipment"`, `"${shipmentBy || ''}"`]);
       csvRows.push([`"Number of BoMs"`, `"${totalBoms}"`, `""`, `""`]);
       csvRows.push([`"Number of Files"`, `"${totalVse}"`, `""`, `""`]);
       csvRows.push([`"Exists in Luminovo Files"`, `"${existsCount}"`, `""`, `""`]);
