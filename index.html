@@ -88,7 +88,7 @@
       </div>
     </div>
 
-    <!-- Enhanced Highlighted Team Performance Summary Table -->
+    <!-- Team Performance Summary Table -->
     <div class="bg-white border border-slate-300 rounded-2xl p-6 shadow-md ring-1 ring-slate-200/70">
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -529,7 +529,7 @@
     }
 
     // =========================================================================
-    // ENHANCED TABLE RENDERING: Highlighting & Distinctions
+    // ENHANCED TABLE RENDERING
     // =========================================================================
     function renderTeamSummary() {
       const counts = {};
@@ -1066,10 +1066,16 @@
 
       pkg.vseList.forEach((vse) => {
         const valToSet = vse.fileName || vse.partNumber;
-        const s1 = vse.stages[0]?.owner || "";
-        const s2 = vse.stages[1]?.owner || "";
-        const s3 = vse.stages[2]?.owner || "";
-        const s4 = vse.stages[3]?.owner || "";
+        let s1 = "", s2 = "", s3 = "", s4 = "";
+        if (pkg.workflowMode === 'DIRECT_LUM') {
+          s1 = vse.stages.find(s => s.name === "Luminovo Upload")?.owner || "";
+          s2 = vse.stages.find(s => s.name === "Luminovo Review")?.owner || "";
+        } else {
+          s1 = vse.stages[0]?.owner || "";
+          s2 = vse.stages[1]?.owner || "";
+          s3 = vse.stages[2]?.owner || "";
+          s4 = vse.stages[3]?.owner || "";
+        }
         addModalFileRow(valToSet, s1, s2, s3, s4, vse.id);
       });
 
@@ -1392,8 +1398,9 @@
       } else if (mode === 'DIRECT_LUM') {
         fileLabel.innerText = "Excel File Name / Part";
         fileInput.placeholder = "e.g. 0090-18546_BOM.xlsx";
-        stage1Label.innerText = "1. Lum. Upload Assignee";
-        stage2Container.style.display = "none";
+        stage1Label.innerText = "1. Lum. Upload";
+        stage2Label.innerText = "2. Lum. Review";
+        stage2Container.style.display = "block";
         stage3Container.style.display = "none";
         stage4Container.style.display = "none";
       } else {
@@ -1531,8 +1538,8 @@
             return;
           }
         } else if (mode === 'DIRECT_LUM') {
-          if (!s1Owner) {
-            alert("Please select team member for Luminovo Upload!");
+          if (!s1Owner || !s2Owner) {
+            alert("Please select team members for both Lum. Upload and Lum. Review!");
             return;
           }
         }
@@ -1541,11 +1548,11 @@
           const oldVse = existingPkg ? existingPkg.vseList.find(v => v.id === existingVseId) : null;
 
           const buildStage = (name, newOwner, stageIdx) => {
-            if (oldVse && oldVse.stages && oldVse.stages[stageIdx] && oldVse.stages[stageIdx].name === name) {
-              return {
-                ...oldVse.stages[stageIdx],
-                owner: newOwner
-              };
+            if (oldVse && oldVse.stages) {
+              const prevSt = oldVse.stages.find(s => s.name === name) || oldVse.stages[stageIdx];
+              if (prevSt && prevSt.name === name) {
+                return { ...prevSt, owner: newOwner };
+              }
             }
             return { name, owner: newOwner, startTime: null, endTime: null, duration: null, status: "PENDING", reworkNote: null, correctionNote: null };
           };
@@ -1568,7 +1575,7 @@
           } else if (mode === 'DIRECT_LUM') {
             stages = [
               buildStage("Luminovo Upload", s1Owner, 0),
-              buildStage("Luminovo Review", s2Owner || s1Owner, 1)
+              buildStage("Luminovo Review", s2Owner, 1)
             ];
           }
 
